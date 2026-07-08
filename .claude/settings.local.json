@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Read(//Users/petitroncarlos/.nvm/versions/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(find \"$HOME/Library/Application Support/Claude\" \"$HOME/.claude\" /Applications/Claude.app -name \"node\" -type f 2>/dev/null | head -5; echo ---; find \"$HOME\" -maxdepth 4 -name \"node\" -type f -not -path \"*/node_modules/*\" 2>/dev/null | head -5; echo ---; ls /usr/bin | grep -E '^\\(node|npm\\)' ; ls /opt 2>/dev/null)",
+      "Bash(cp -R /private/tmp/claude-501/-Volumes-MEDIA-CLAUDE-stuff-DOMI-NO/8f7672ff-c54a-4c12-ab9f-f47ad13a13d2/scratchpad/node-v20.18.1-darwin-arm64 /Volumes/MEDIA/CLAUDE_stuff/.node20)",
+      "Bash(/Volumes/MEDIA/CLAUDE_stuff/.node20/bin/node --version)"
+    ]
+  }
+}

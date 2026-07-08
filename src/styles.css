@@ -821,27 +821,41 @@ input {
   background: var(--paper);
   border-radius: 16px;
   box-shadow: 0 12px 40px rgba(23, 25, 27, 0.18);
-  padding: 18px 20px 20px;
+  padding: 18px 22px 22px;
   display: flex;
   flex-direction: column;
   gap: 14px;
   align-items: center;
-  max-width: min(92vw, 520px);
+  max-width: min(92vw, 380px);
   z-index: 8;
-  animation: panelIn 0.3s var(--ease);
+  /* own keyframes: the entrance must PRESERVE the centering translate */
+  animation: trayIn 0.28s var(--ease);
+}
+@keyframes trayIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -46%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 .tray-title {
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 600;
   letter-spacing: 0.2em;
   color: var(--ink-soft);
   text-align: center;
+  line-height: 1.6;
 }
 .tray-tiles {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: center;
+  /* 7 backs per row, then wrap */
+  max-width: 292px;
 }
 .tray-tile {
   width: 34px;
@@ -1671,6 +1685,94 @@ input {
 }
 .profile-stats {
   margin-bottom: 0;
+}
+
+/* -------------------------------------------------------------- vs friend */
+
+.mode-pips-friend {
+  background: var(--tile-ai);
+  padding: 6px;
+}
+
+.friend-body {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  max-width: 560px;
+}
+.friend-modes {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.friend-mode {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px 10px 10px;
+  border-radius: 12px;
+  background: var(--paper);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  box-shadow: 0 1px 3px rgba(23, 25, 27, 0.1);
+  transition: background 0.15s, color 0.15s, transform 0.12s var(--ease);
+}
+.friend-mode:hover {
+  transform: translateY(-2px);
+}
+.friend-mode-on {
+  background: var(--ink);
+  color: var(--paper);
+}
+.friend-mode-on .mode-pips {
+  color: var(--accent);
+}
+.friend-code {
+  font-size: clamp(56px, 14vw, 110px);
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  color: var(--accent);
+}
+.friend-link {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.friend-url {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  background: var(--paper);
+  border-radius: 10px;
+  padding: 12px 16px;
+  word-break: break-all;
+  user-select: all;
+}
+.friend-waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.friend-waiting .ai-pip {
+  position: static;
+}
+.friend-waiting-label {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--ink-soft);
+}
+.friend-note {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  line-height: 1.9;
+  color: var(--ink-soft);
+  max-width: 440px;
 }
 
 /* avatar picker */

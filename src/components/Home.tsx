@@ -12,7 +12,7 @@ const MODES: { mode: Mode; pips: number; label: string; sub: string }[] = [
 
 interface HomeProps {
   onPlay: (mode: Mode) => void
-  onNav: (screen: 'profile' | 'stats' | 'history' | 'settings' | 'rules') => void
+  onNav: (screen: 'profile' | 'stats' | 'history' | 'settings' | 'rules' | 'friend') => void
 }
 
 export function Home({ onPlay, onNav }: HomeProps) {
@@ -71,6 +71,20 @@ export function Home({ onPlay, onNav }: HomeProps) {
               <span className="mode-go">→</span>
             </button>
           ))}
+          <button
+            className="mode-row"
+            onClick={() => {
+              sfx.select()
+              onNav('friend')
+            }}
+          >
+            <span className="mode-pips mode-pips-friend">
+              <PixelFace face="devil" />
+            </span>
+            <span className="mode-label">VS FRIEND</span>
+            <span className="mode-sub">INVITE LINK · LIVE 1V1</span>
+            <span className="mode-go">→</span>
+          </button>
         </nav>
       </div>
 

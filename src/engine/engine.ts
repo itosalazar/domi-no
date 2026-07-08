@@ -328,3 +328,43 @@ export function nextRound(match: Match): Match {
 export function matchDurationSec(m: Match): number {
   return Math.round((Date.now() - m.startedAt) / 1000)
 }
+
+// ---------------------------------------------------------------- online
+
+/**
+ * Swap the two seats in a match. In online play the host runs the canonical
+ * engine (host = 'p', guest = 'ai'); the guest swaps every received state so
+ * the entire UI can stay 'p'-centric on both ends.
+ */
+export function swapPerspective(m: Match): Match {
+  const sw = <T extends Seat | 'tie'>(s: T): T => (s === 'p' ? ('ai' as T) : s === 'ai' ? ('p' as T) : s)
+  const r = m.round
+  return {
+    ...m,
+    scores: { p: m.scores.ai, ai: m.scores.p },
+    winner: m.winner ? sw(m.winner) : null,
+    lastScoreEvent: m.lastScoreEvent ? { ...m.lastScoreEvent, seat: sw(m.lastScoreEvent.seat) } : null,
+    counts: {
+      placed: { p: m.counts.placed.ai, ai: m.counts.placed.p },
+      passes: { p: m.counts.passes.ai, ai: m.counts.passes.p },
+      drawn: { p: m.counts.drawn.ai, ai: m.counts.drawn.p },
+      rounds: m.counts.rounds,
+    },
+    round: {
+      ...r,
+      hands: { p: r.hands.ai.slice(), ai: r.hands.p.slice() },
+      boneyard: r.boneyard.slice(),
+      turn: sw(r.turn),
+      starter: sw(r.starter),
+      chain: r.chain.map((t) => ({ ...t, by: sw(t.by) })),
+      result: r.result
+        ? {
+            ...r.result,
+            winner: sw(r.result.winner),
+            pips: { p: r.result.pips.ai, ai: r.result.pips.p },
+            points: { p: r.result.points.ai, ai: r.result.points.p },
+          }
+        : null,
+    },
+  }
+}

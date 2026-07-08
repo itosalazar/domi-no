@@ -10,7 +10,7 @@ interface SetupProps {
   onBack: () => void
 }
 
-function OptionToggle({
+export function OptionToggle({
   on,
   onChange,
   label,

@@ -10,11 +10,13 @@ import {
   nextRound,
   passTurn,
   playMove,
+  swapPerspective,
 } from '../engine/engine'
-import type { End, Match, Mode } from '../engine/types'
+import type { End, Match, MatchOptions, Mode, Move } from '../engine/types'
 import { MODE_LABEL } from '../engine/types'
 import { sfx } from '../audio/sound'
 import { useStore } from '../state/store'
+import type { OnlineSession } from '../net/peer'
 import { Board } from './Board'
 import { Hand } from './Hand'
 import { Domino } from './Tile'
@@ -30,12 +32,24 @@ interface GameScreenProps {
   mode: Mode
   onExit: () => void
   onNewGame: () => void
+  /**
+   * Online 1v1 session. The host runs the canonical engine (host='p',
+   * guest='ai'); the guest receives states already swapped so this whole
+   * component stays 'p'-centric on both ends.
+   */
+  online?: OnlineSession | null
 }
 
-export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
+/** Reconstruct the option flags a match was created with. */
+const matchOpts = (m: Match): MatchOptions => ({
+  toHundred: m.mode !== 'fives' && m.target > 0,
+  drawToPlay: m.mode === 'block' && m.drawing,
+})
+
+export function GameScreen({ mode, onExit, onNewGame, online }: GameScreenProps) {
   const { profile, settings, recordMatch, haptic } = useStore()
   const opts = { toHundred: profile.optToHundred, drawToPlay: profile.optDrawToPlay }
-  const [match, setMatch] = useState<Match>(() => newMatch(mode, opts))
+  const [match, setMatch] = useState<Match>(() => online?.initialMatch ?? newMatch(mode, opts))
   const [selected, setSelected] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [scorePop, setScorePop] = useState<{ key: number; points: number; seat: string } | null>(null)
@@ -43,18 +57,24 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
   const [aiThinking, setAiThinking] = useState(false)
   const [drag, setDrag] = useState<{ id: string; x: number; y: number } | null>(null)
   const [hotEnd, setHotEnd] = useState<End | null>(null)
+  const [oppLeft, setOppLeft] = useState(false)
   /** Consecutive boneyard draws by the player this turn — drives the mood face. */
   const [drawStreak, setDrawStreak] = useState(0)
-  /** Consecutive AI draws this turn — the player's avatar mocks the rival. */
+  /** Consecutive rival draws this turn — the player's avatar mocks them. */
   const [aiDrawStreak, setAiDrawStreak] = useState(0)
   const inputLock = useRef(0)
   const recorded = useRef<Set<string>>(new Set())
   const toastKey = useRef(0)
-  // Latest match for event listeners that outlive a render (drag drop).
+  // Latest match for event listeners that outlive a render (drag drop, network).
   const matchRef = useRef(match)
   useEffect(() => {
     matchRef.current = match
   }, [match])
+
+  const isGuest = !!online && !online.isHost
+  const oppName = online ? (online.opponent.name || 'RIVAL').toUpperCase().slice(0, 14) : 'AI'
+  const oppAvatar = online ? online.opponent.avatar : 'flat'
+  const oppAccent = online ? online.opponent.accent : null
 
   const r = match.round
   const myTurn = !match.over && !r.over && r.turn === 'p'
@@ -83,32 +103,22 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
 
   // ------------------------------------------------------------- AI driver
   useEffect(() => {
+    if (online) return // remote human plays the other seat
     if (match.over || r.over || r.turn !== 'ai') {
       setAiThinking(false)
       return
     }
     setAiThinking(true)
     const planned = chooseAiAction(match)
-    // A readable beat: the AI "thinks" a couple of seconds before playing.
-    const delay =
-      planned.type === 'play' ? 1600 + Math.random() * 700 : planned.type === 'draw' ? 550 : 800
+    // A readable beat: the AI "thinks" 1.2s before playing.
+    const delay = planned.type === 'play' ? 1200 : planned.type === 'draw' ? 550 : 800
     const id = setTimeout(() => {
       setMatch((m) => {
         if (m.over || m.round.over || m.round.turn !== 'ai') return m
         const act = chooseAiAction(m)
         try {
-          if (act.type === 'play') {
-            sfx.place()
-            return playMove(m, 'ai', act.move)
-          }
-          if (act.type === 'draw') {
-            sfx.draw()
-            showToast('AI DRAWS')
-            setAiDrawStreak((s) => s + 1)
-            return drawTile(m)
-          }
-          sfx.pass()
-          showToast('AI PASSES')
+          if (act.type === 'play') return playMove(m, 'ai', act.move)
+          if (act.type === 'draw') return drawTile(m)
           return passTurn(m)
         } catch {
           return m
@@ -116,7 +126,77 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
       })
     }, delay)
     return () => clearTimeout(id)
-  }, [match, r.over, r.turn, showToast])
+  }, [match, r.over, r.turn, online])
+
+  // ----------------------------------------------------------- network glue
+  // Host: broadcast every state change.
+  useEffect(() => {
+    if (online?.isHost) online.net.send({ t: 'state', match })
+  }, [match, online])
+
+  // Both ends: react to incoming messages.
+  useEffect(() => {
+    if (!online) return
+    const net = online.net
+    net.setOnMessage((msg) => {
+      if (msg.t === 'leave') {
+        setOppLeft(true)
+        return
+      }
+      if (online.isHost) {
+        setMatch((m) => {
+          try {
+            if (msg.t === 'move' && !m.over && !m.round.over && m.round.turn === 'ai') {
+              return playMove(m, 'ai', msg.move as Move)
+            }
+            if (msg.t === 'draw' && !m.over && !m.round.over && m.round.turn === 'ai') {
+              return drawTile(m, msg.index as number)
+            }
+            if (msg.t === 'pass' && !m.over && !m.round.over && m.round.turn === 'ai') {
+              return passTurn(m)
+            }
+            if (msg.t === 'nextRound') return nextRound(m)
+            if (msg.t === 'rematch' && m.over) return newMatch(m.mode, matchOpts(m))
+          } catch {
+            /* stale/illegal remote action — ignore */
+          }
+          return m
+        })
+      } else if (msg.t === 'state') {
+        setMatch(swapPerspective(msg.match as Match))
+      }
+    })
+    net.setOnClose(() => setOppLeft(true))
+    return () => {
+      net.setOnMessage(null)
+      net.setOnClose(null)
+    }
+  }, [online])
+
+  // ------------------------------------------------- opponent action feedback
+  // Sounds, toasts and the mocking devil are derived from state diffs so they
+  // work identically for the local AI, the online host, and the online guest.
+  const prevMatch = useRef(match)
+  useEffect(() => {
+    const prev = prevMatch.current
+    prevMatch.current = match
+    if (prev === match || match.id !== prev.id || match.roundNumber !== prev.roundNumber) return
+    const now = match.round
+    const was = prev.round
+    if (now.chain.length > was.chain.length) {
+      const newest = now.chain.reduce((a, b) => (a.seq > b.seq ? a : b))
+      if (newest.by === 'ai') sfx.place()
+    }
+    if (was.turn === 'ai' && now.hands.ai.length > was.hands.ai.length) {
+      sfx.draw()
+      showToast(`${oppName} DRAWS`)
+      setAiDrawStreak((s) => s + 1)
+    }
+    if (was.turn === 'ai' && now.consecutivePasses > was.consecutivePasses) {
+      sfx.pass()
+      showToast(`${oppName} PASSES`)
+    }
+  }, [match, oppName, showToast])
 
   // ------------------------------------------------------- score + end fx
   useEffect(() => {
@@ -142,11 +222,7 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
   }, [match, recordMatch, haptic])
 
   // ---------------------------------------------------------- player input
-  const locked = () => {
-    const now = Date.now()
-    if (now < inputLock.current) return true
-    return false
-  }
+  const locked = () => Date.now() < inputLock.current
 
   const onSelect = (id: string) => {
     if (!myTurn || locked()) return
@@ -167,18 +243,23 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
       const m = matchRef.current
       if (Date.now() < inputLock.current) return
       if (m.over || m.round.over || m.round.turn !== 'p') return
-      try {
-        const next = playMove(m, 'p', { tileId, end })
-        inputLock.current = Date.now() + 400
-        setMatch(next)
-        setSelected(null)
-        sfx.place()
-        haptic(15)
-      } catch {
-        /* illegal or stale — ignore */
+      const tile = m.round.hands.p.find((t) => t.id === tileId)
+      if (!tile || !legalEndsForTile(tile, m.round.chain).includes(end)) return
+      inputLock.current = Date.now() + 400
+      if (isGuest) {
+        online!.net.send({ t: 'move', move: { tileId, end } })
+      } else {
+        try {
+          setMatch(playMove(m, 'p', { tileId, end }))
+        } catch {
+          return
+        }
       }
+      setSelected(null)
+      sfx.place()
+      haptic(15)
     },
-    [haptic],
+    [haptic, isGuest, online],
   )
 
   const onPlaceAt = (end: End) => {
@@ -241,15 +322,19 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
   /** Player picks a specific face-down tile from the boneyard tray. */
   const onDraw = (index: number) => {
     if (!myTurn || locked() || !mustDraw(match)) return
-    inputLock.current = Date.now() + 250
-    try {
-      setMatch((m) => drawTile(m, index))
-      setDrawStreak((s) => s + 1)
-      sfx.draw()
-      haptic(8)
-    } catch {
-      /* ignore */
+    inputLock.current = Date.now() + (isGuest ? 600 : 250)
+    if (isGuest) {
+      online!.net.send({ t: 'draw', index })
+    } else {
+      try {
+        setMatch((m) => drawTile(m, index))
+      } catch {
+        return
+      }
     }
+    setDrawStreak((s) => s + 1)
+    sfx.draw()
+    haptic(8)
   }
 
   // Frustration/mockery streaks clear once the stuck player gets to act.
@@ -261,23 +346,36 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
   const onPass = () => {
     if (!myTurn || locked() || !mustPass(match)) return
     inputLock.current = Date.now() + 350
-    try {
-      setMatch(passTurn)
-      sfx.pass()
-      showToast('YOU PASS')
-    } catch {
-      /* ignore */
+    if (isGuest) {
+      online!.net.send({ t: 'pass' })
+    } else {
+      try {
+        setMatch(passTurn)
+      } catch {
+        return
+      }
     }
+    sfx.pass()
+    showToast('YOU PASS')
   }
 
   const onRematch = () => {
-    recorded.current.delete(match.id)
+    if (oppLeft) return
     setSelected(null)
-    setMatch(newMatch(mode, opts))
+    if (isGuest) {
+      online!.net.send({ t: 'rematch' })
+      showToast('REMATCH REQUESTED')
+      return
+    }
+    setMatch(newMatch(match.mode, online ? matchOpts(match) : opts))
   }
 
   const onContinueRound = () => {
     setSelected(null)
+    if (isGuest) {
+      online!.net.send({ t: 'nextRound' })
+      return
+    }
     setMatch(nextRound)
   }
 
@@ -314,7 +412,7 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
             <span />
           </button>
           <div className="hud-mode">
-            <span className="hud-mode-name">{MODE_LABEL[mode]}</span>
+            <span className="hud-mode-name">{MODE_LABEL[match.mode]}</span>
             {scored && <span className="hud-round">R{match.roundNumber} · TO {match.target}</span>}
           </div>
         </div>
@@ -333,10 +431,13 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
           </div>
           <span className="hud-vs">/</span>
           <div className={`hud-player hud-ai ${!myTurn && !r.over && !match.over ? 'active' : ''}`}>
-            <span className="hud-avatar hud-avatar-ai">
-              <PixelFace face="flat" />
+            <span
+              className="hud-avatar hud-avatar-ai"
+              style={oppAccent ? { background: oppAccent } : undefined}
+            >
+              <PixelFace face={oppAvatar} />
             </span>
-            <span className="hud-name">AI</span>
+            <span className="hud-name">{oppName}</span>
             {scored ? (
               <span className="hud-score">{match.scores.ai}</span>
             ) : (
@@ -454,13 +555,17 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
           )
         })()}
 
-      {/* ------------------------------------------------ ROUND OVERLAY (fives interstitial) */}
-      {r.over && !match.over && r.result && (
+      {/* ------------------------------------------------ ROUND OVERLAY (multi-round interstitial) */}
+      {r.over && !match.over && r.result && !oppLeft && (
         <div className="overlay">
           <div className="panel">
             <div className="panel-kicker">ROUND {match.roundNumber}</div>
             <h2 className="panel-title">
-              {r.result.winner === 'p' ? 'ROUND YOURS' : r.result.winner === 'ai' ? 'AI ROUND' : 'BLOCKED EVEN'}
+              {r.result.winner === 'p'
+                ? 'ROUND YOURS'
+                : r.result.winner === 'ai'
+                  ? `${oppName} ROUND`
+                  : 'BLOCKED EVEN'}
             </h2>
             <div className="panel-rows">
               <div className="panel-row">
@@ -468,7 +573,7 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
                 <b>{match.scores.p}</b>
               </div>
               <div className="panel-row">
-                <span>AI</span>
+                <span>{oppName}</span>
                 <b>{match.scores.ai}</b>
               </div>
               {r.result.reason === 'blocked' && (
@@ -485,22 +590,44 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
       )}
 
       {/* ------------------------------------------------ MATCH OVERLAY */}
-      {match.over && (
+      {match.over && !oppLeft && (
         <MatchResult
           match={match}
           name={name}
+          oppName={oppName}
+          canRematch={!online || !oppLeft}
           onRematch={onRematch}
           onNewGame={onNewGame}
           onHome={onExit}
         />
       )}
 
+      {/* ------------------------------------------------ OPPONENT LEFT */}
+      {oppLeft && (
+        <div className="overlay">
+          <div className="panel">
+            <div className="panel-kicker">CONNECTION</div>
+            <h2 className="panel-title">
+              {oppName}
+              <br />
+              LEFT
+            </h2>
+            <div className="panel-note">
+              {match.over ? 'THE RESULT WAS ALREADY RECORDED.' : 'MATCH NOT RECORDED.'}
+            </div>
+            <button className="btn-accent" onClick={onExit}>
+              HOME
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ------------------------------------------------ MENU */}
-      {menuOpen && !match.over && (
+      {menuOpen && !match.over && !oppLeft && (
         <div className="overlay" onClick={() => setMenuOpen(false)}>
           <div className="panel" onClick={(e) => e.stopPropagation()}>
             <div className="panel-kicker">PAUSED</div>
-            <h2 className="panel-title">{MODE_LABEL[mode]}</h2>
+            <h2 className="panel-title">{MODE_LABEL[match.mode]}</h2>
             <button className="btn-accent" onClick={() => setMenuOpen(false)}>
               RESUME
             </button>
@@ -525,12 +652,16 @@ export function GameScreen({ mode, onExit, onNewGame }: GameScreenProps) {
 function MatchResult({
   match,
   name,
+  oppName,
+  canRematch,
   onRematch,
   onNewGame,
   onHome,
 }: {
   match: Match
   name: string
+  oppName: string
+  canRematch: boolean
   onRematch: () => void
   onNewGame: () => void
   onHome: () => void
@@ -558,15 +689,17 @@ function MatchResult({
           </div>
           <div className={`result-score ${match.winner === 'ai' ? 'lead' : ''}`}>
             <span className="result-score-num">{scored ? match.scores.ai : res?.pips.ai ?? 0}</span>
-            <span className="result-score-name">AI</span>
+            <span className="result-score-name">{oppName}</span>
           </div>
         </div>
         {!scored && <div className="panel-note">REMAINING PIPS — LOWER WINS</div>}
 
         <div className="result-actions">
-          <button className="btn-accent" onClick={onRematch}>
-            REMATCH
-          </button>
+          {canRematch && (
+            <button className="btn-accent" onClick={onRematch}>
+              REMATCH
+            </button>
+          )}
           <button className="btn-ink" onClick={onNewGame}>
             NEW GAME
           </button>

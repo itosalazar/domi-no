@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { End, Placed } from '../engine/types'
-import { CELL, computeLayout, footprintRect } from '../engine/layout'
+import { CELL, NARROW_BOUNDS, WIDE_BOUNDS, computeLayout, footprintRect } from '../engine/layout'
 import { Domino } from './Tile'
 
 interface Camera {
@@ -33,8 +33,13 @@ export function Board({
   refitKey,
   hotEnd,
 }: BoardProps) {
-  const layout = useMemo(() => computeLayout(chain, activeEnds), [chain, activeEnds])
   const viewportRef = useRef<HTMLDivElement>(null)
+  // Phones get shorter runs (5 tiles per row) so the camera zooms out less.
+  const [narrow, setNarrow] = useState(() => window.innerWidth < 640)
+  const layout = useMemo(
+    () => computeLayout(chain, activeEnds, narrow ? NARROW_BOUNDS : WIDE_BOUNDS),
+    [chain, activeEnds, narrow],
+  )
   const [cam, setCam] = useState<Camera>({ cx: CELL, cy: CELL / 2, s: 1, manual: false })
   const [dragging, setDragging] = useState(false)
   const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(null)
@@ -46,7 +51,8 @@ export function Board({
     const vw = el.clientWidth
     const vh = el.clientHeight
     if (vw === 0 || vh === 0) return
-    const pad = 90
+    // Tighter margins on phones so the tiles stay as large as possible.
+    const pad = vw < 640 ? 26 : 90
     const bw = (layout.maxX - layout.minX) * CELL + pad * 2
     const bh = (layout.maxY - layout.minY) * CELL + pad * 2
     const s = Math.min(Math.min(vw / bw, vh / bh), 1.05)
@@ -79,6 +85,7 @@ export function Board({
     const el = viewportRef.current
     if (!el) return
     const obs = new ResizeObserver(() => {
+      setNarrow(el.clientWidth < 640)
       setCam((c) => (c.manual ? c : { ...c }))
       fit()
     })

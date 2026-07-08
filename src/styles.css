@@ -683,13 +683,20 @@ input {
   display: flex;
   gap: 10px;
   align-items: flex-end;
-  justify-content: center;
   padding: 14px 18px 20px;
   background: var(--paper);
   min-height: 156px;
   overflow-x: auto;
   transition: opacity 0.3s;
   z-index: 6;
+}
+/* auto margins center the hand when it fits and left-align it when it
+   overflows — plain justify-content:center would clip the first tile */
+.hand-slot:first-child {
+  margin-left: auto;
+}
+.hand-slot:last-child {
+  margin-right: auto;
 }
 .hand-waiting {
   opacity: 0.55;
@@ -1850,16 +1857,28 @@ input {
   .hud-boneyard-label {
     display: none;
   }
+  /* a starting hand of 7 always fits without scrolling; the tiles shrink
+     fluidly with the viewport, and 8+ (after draws) scrolls */
+  /* 100vw minus hand padding (20) + 7 slot paddings (28) + 6 gaps (30) */
   .dom-hand {
-    width: 46px;
-    height: 90px;
+    width: clamp(32px, calc((100vw - 78px) / 7), 46px);
+    height: auto;
+    aspect-ratio: 29 / 56;
   }
   .hand {
-    min-height: 128px;
-    justify-content: flex-start;
+    gap: 5px;
+    padding: 10px 10px 14px;
+    min-height: 118px;
+  }
+  .hand-slot {
+    padding: 2px;
+    gap: 5px;
+  }
+  .hand-dot {
+    width: 24px;
   }
   .action-bar {
-    bottom: 146px;
+    bottom: 128px;
     width: max-content;
   }
   .panel {

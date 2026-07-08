@@ -30,6 +30,30 @@ function ensure(): AudioContext | null {
   }
 }
 
+/**
+ * Mobile browsers only allow audio started inside a user gesture. Many of our
+ * sounds fire from state changes (AI tiles landing, score pops), so unlock
+ * the context on the very first touch: resume it and play one silent sample.
+ */
+function unlock() {
+  try {
+    const c = ensure()
+    if (!c) return
+    if (c.state === 'suspended') void c.resume()
+    const buf = c.createBuffer(1, 1, 22050)
+    const src = c.createBufferSource()
+    src.buffer = buf
+    src.connect(c.destination)
+    src.start(0)
+  } catch {
+    /* stay silent */
+  }
+  window.removeEventListener('pointerdown', unlock, true)
+  window.removeEventListener('touchend', unlock, true)
+}
+window.addEventListener('pointerdown', unlock, true)
+window.addEventListener('touchend', unlock, true)
+
 function tone(freq: number, dur: number, opts: { type?: OscillatorType; at?: number; gain?: number; slide?: number } = {}) {
   const c = ensure()
   if (!c || !master) return

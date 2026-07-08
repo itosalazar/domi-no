@@ -16,9 +16,15 @@ import type { End, Placed } from './types'
 
 export const CELL = 44 // px per board cell at zoom 1
 
-const XMAX = 6 // right-most cell of a horizontal run
-const XMIN = -7 // left-most cell of a horizontal run
-const inX = (x: number) => x >= XMIN && x <= XMAX
+/** Horizontal run bounds in cells — narrower on phones so rows wrap sooner. */
+export interface RunBounds {
+  min: number
+  max: number
+}
+export const WIDE_BOUNDS: RunBounds = { min: -7, max: 6 } // ~7 tiles per run
+export const NARROW_BOUNDS: RunBounds = { min: -5, max: 4 } // ~5 tiles per run
+
+const inX = (x: number, b: RunBounds) => x >= b.min && x <= b.max
 
 export interface LaidTile {
   id: string
@@ -71,6 +77,7 @@ function walkArm(
   vSign: 1 | -1,
   outward: boolean, // true when walking away from anchor on the left arm
   out: LaidTile[],
+  bounds: RunBounds,
 ): Cursor {
   const c: Cursor = { x: start.x, y: start.y, horiz, vSign }
   let prevAxisH = true // both arms connect to the horizontal anchor row
@@ -81,7 +88,7 @@ function walkArm(
     let dx: number
     let dy: number
     let flip = false
-    if (inX(endX)) {
+    if (inX(endX, bounds)) {
       dx = c.horiz
       dy = 0
     } else {
@@ -124,14 +131,18 @@ function walkArm(
 }
 
 /** Footprint for the NEXT placement at an arm's cursor (always 2 cells). */
-function slotAt(c: Cursor, end: End): TargetSlot {
-  const horizontal = inX(c.x + c.horiz)
+function slotAt(c: Cursor, end: End, bounds: RunBounds): TargetSlot {
+  const horizontal = inX(c.x + c.horiz, bounds)
   const dx = horizontal ? c.horiz : 0
   const dy = horizontal ? 0 : c.vSign
   return { end, x1: c.x, y1: c.y, x2: c.x + dx, y2: c.y + dy, horizontal }
 }
 
-export function computeLayout(chain: Placed[], openEnds: End[]): BoardLayout {
+export function computeLayout(
+  chain: Placed[],
+  openEnds: End[],
+  bounds: RunBounds = WIDE_BOUNDS,
+): BoardLayout {
   const tiles: LaidTile[] = []
   const targets: TargetSlot[] = []
 
@@ -151,14 +162,14 @@ export function computeLayout(chain: Placed[], openEnds: End[]): BoardLayout {
   const rightArm = chain.slice(anchorIdx) // anchor first, walking right
   const leftArm = chain.slice(0, anchorIdx).reverse() // nearest-to-anchor first, walking left
 
-  const rightCursor = walkArm(rightArm, { x: 0, y: 0 }, 1, 1, false, tiles)
+  const rightCursor = walkArm(rightArm, { x: 0, y: 0 }, 1, 1, false, tiles, bounds)
   // The left arm starts flush against whatever the anchor occupies.
   const anchorLaid = tiles[0]
   const leftStartX = Math.min(anchorLaid.x1, anchorLaid.x2) - 1
-  const leftCursor = walkArm(leftArm, { x: leftStartX, y: 0 }, -1, -1, true, tiles)
+  const leftCursor = walkArm(leftArm, { x: leftStartX, y: 0 }, -1, -1, true, tiles, bounds)
 
-  if (openEnds.includes('R')) targets.push(slotAt(rightCursor, 'R'))
-  if (openEnds.includes('L')) targets.push(slotAt(leftCursor, 'L'))
+  if (openEnds.includes('R')) targets.push(slotAt(rightCursor, 'R', bounds))
+  if (openEnds.includes('L')) targets.push(slotAt(leftCursor, 'L', bounds))
 
   let minX = Infinity
   let minY = Infinity

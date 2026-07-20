@@ -1670,6 +1670,37 @@ input {
   color: var(--accent);
 }
 
+.credits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.credits-name {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.credits-link {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  text-decoration: none;
+  width: max-content;
+  border-bottom: 2px solid transparent;
+  transition: border-color 0.15s;
+}
+.credits-link:hover {
+  border-color: var(--accent);
+}
+.credits-copy {
+  margin-top: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--ink-soft);
+}
+
 /* profile */
 .profile-identity {
   display: flex;

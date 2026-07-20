@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { ACCENTS, useStore } from '../state/store'
 import { sfx } from '../audio/sound'
 
+const YEAR = new Date().getFullYear()
+
 function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
     <button className="setting-row" onClick={() => onChange(!on)} role="switch" aria-checked={on}>
@@ -88,6 +90,22 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
               </button>
             </div>
           )}
+        </div>
+
+        <div className="setting-group">
+          <div className="panel-kicker">CREDITS</div>
+          <div className="credits">
+            <span className="credits-name">ITO SALAZAR</span>
+            <a
+              className="credits-link"
+              href="https://www.itosalazar.com"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              www.itosalazar.com
+            </a>
+            <span className="credits-copy">© {YEAR} ITO SALAZAR · ALL RIGHTS RESERVED</span>
+          </div>
         </div>
       </div>
     </div>
